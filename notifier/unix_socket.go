@@ -11,8 +11,10 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// SetupUnixSocketNotifier configures a unix socket to transmit touch requests to other apps
-func SetupUnixSocketNotifier(notifiers *sync.Map, exits *sync.Map) {
+// SetupUnixSocketNotifier configures a unix socket to transmit touch requests
+// to other apps. When json is true each event is emitted as a JSON object on
+// its own line, otherwise the legacy fixed-length 5 byte token is used.
+func SetupUnixSocketNotifier(notifiers *sync.Map, exits *sync.Map, json bool) {
 	socketDir := socketRuntimeDir()
 	if socketDir == "" {
 		log.Error("Cannot setup unix socket notifier, $XDG_RUNTIME_DIR is not defined.")
@@ -63,17 +65,24 @@ func SetupUnixSocketNotifier(notifiers *sync.Map, exits *sync.Map) {
 		exit <- true
 	}()
 
-	touch := make(chan Message, 10)
+	touch := make(chan Event, 10)
 	notifiers.Store("notifier/unix_socket", touch)
 
 	touchListeners := make(map[*net.Conn]chan []byte)
 	touchListenersMutex := sync.RWMutex{}
 	go func() {
-		for {
-			value := <-touch
+		state := newTouchState()
+		for value := range touch {
+			state.update(value.Message)
+			var payload []byte
+			if json {
+				payload = []byte(value.JSONStringWithReasons(state.reasons()) + "\n")
+			} else {
+				payload = []byte(value.Message)
+			}
 			touchListenersMutex.RLock()
 			for _, listener := range touchListeners {
-				listener <- []byte(value)
+				listener <- payload
 			}
 			touchListenersMutex.RUnlock()
 		}

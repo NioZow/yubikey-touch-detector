@@ -16,14 +16,14 @@ func SetupDesktopNotifier(notifiers *sync.Map, title, body string) {
 		return
 	}
 
-	touch := make(chan Message, 10)
+	touch := make(chan Event, 10)
 	notifiers.Store("notifier/desktop", touch)
 
 	state := newTouchState()
 	for value := range touch {
-		wasActive, isActive, _ := state.update(value)
+		wasActive, isActive, _ := state.update(value.Message)
 		if !wasActive && isActive {
-			renderedTitle, renderedBody, err := templates.render(state.reasons())
+			renderedTitle, renderedBody, err := templates.render(buildTemplateData(value, state.reasons()))
 			if err != nil {
 				log.Error("Cannot render desktop notification: ", err)
 				continue

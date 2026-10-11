@@ -6,10 +6,23 @@ YUBIKEY_TOUCH_DETECTOR_NOTIFY=true
 
 # customize desktop notifications
 # YUBIKEY_TOUCH_DETECTOR_NOTIFY_TITLE="Security key required"
-# YUBIKEY_TOUCH_DETECTOR_NOTIFY_BODY="Touch your YubiKey to continue ({{.Reasons}})."
+# YUBIKEY_TOUCH_DETECTOR_NOTIFY_BODY="Touch your YubiKey to continue ({{.Reasons}}).{{if .Comm}}\nRequested by {{.Comm}} ({{.Cmdline}}){{end}}"
 
 # do not print notifications to stdout
 YUBIKEY_TOUCH_DETECTOR_STDOUT=false
+# customize the stdout template ({{.JSON}} emits one JSON object per line)
+# YUBIKEY_TOUCH_DETECTOR_STDOUT_FORMAT="{{.Timestamp}} {{.Type}} {{.Comm}} {{.Cmdline}}"
 
 # disable Un*x socket notifier
 YUBIKEY_TOUCH_DETECTOR_NOSOCKET=false
+# emit rich JSON events on the socket instead of 5 byte tokens
+# YUBIKEY_TOUCH_DETECTOR_SOCKET_JSON=true
+
+# append touch history to a file
+# YUBIKEY_TOUCH_DETECTOR_LOG_FILE=/home/user/.local/state/yubikey-touch-detector/history.log
+# YUBIKEY_TOUCH_DETECTOR_LOG_FORMAT="{{.Timestamp}} {{.Type}} pid={{.PID}} {{.Cmdline}}"
+# also log the end of touch requests
+# YUBIKEY_TOUCH_DETECTOR_LOG_ALL=false
+
+# enable the dbus IPC server (exposes a LastEvent property)
+# YUBIKEY_TOUCH_DETECTOR_DBUS=true

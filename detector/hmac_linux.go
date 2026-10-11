@@ -18,6 +18,7 @@ type hmacDeviceState struct {
 	pathsByDevice map[string]map[string]bool
 	pending       map[string]bool
 	active        bool
+	lastRemoved   string
 }
 
 func newHMACDeviceState() *hmacDeviceState {
@@ -49,6 +50,7 @@ func (state *hmacDeviceState) remove(devicePath string) bool {
 	if !exists {
 		return false
 	}
+	state.lastRemoved = devicePath
 	delete(state.deviceByPath, devicePath)
 	delete(state.pathsByDevice[deviceID], devicePath)
 	if len(state.pathsByDevice[deviceID]) == 0 {
@@ -94,8 +96,12 @@ func WatchHMAC(notifiers *sync.Map) {
 	var debounce <-chan time.Time
 	publish := func() {
 		if message, changed := state.message(); changed {
+			event := notifier.Event{Message: message, Time: time.Now()}
+			if message == notifier.HMAC_ON {
+				event.Process = attributeDevice(state.lastRemoved, true)
+			}
 			notifiers.Range(func(_, value interface{}) bool {
-				value.(chan notifier.Message) <- message
+				value.(chan notifier.Event) <- event
 				return true
 			})
 		}

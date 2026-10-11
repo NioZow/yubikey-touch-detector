@@ -35,8 +35,8 @@ func TestMacOSFIDOMessages(t *testing.T) {
 }
 
 func TestMacOSFIDODebouncerSuppressesShortQueue(t *testing.T) {
-	messages := make(chan notifier.Message, 2)
-	debouncer := newMacOSFIDODebouncer(20*time.Millisecond, func(message notifier.Message) {
+	messages := make(chan notifier.Event, 2)
+	debouncer := newMacOSFIDODebouncer(20*time.Millisecond, func(message notifier.Event) {
 		messages <- message
 	})
 	defer debouncer.close()
@@ -52,8 +52,8 @@ func TestMacOSFIDODebouncerSuppressesShortQueue(t *testing.T) {
 }
 
 func TestMacOSFIDODebouncerEmitsLongQueue(t *testing.T) {
-	messages := make(chan notifier.Message, 2)
-	debouncer := newMacOSFIDODebouncer(10*time.Millisecond, func(message notifier.Message) {
+	messages := make(chan notifier.Event, 2)
+	debouncer := newMacOSFIDODebouncer(10*time.Millisecond, func(message notifier.Event) {
 		messages <- message
 	})
 	defer debouncer.close()
@@ -61,7 +61,7 @@ func TestMacOSFIDODebouncerEmitsLongQueue(t *testing.T) {
 	debouncer.handle(notifier.U2F_ON)
 	select {
 	case message := <-messages:
-		if message != notifier.U2F_ON {
+		if message.Message != notifier.U2F_ON {
 			t.Fatalf("start message = %v", message)
 		}
 	case <-time.After(time.Second):
@@ -71,7 +71,7 @@ func TestMacOSFIDODebouncerEmitsLongQueue(t *testing.T) {
 	debouncer.handle(notifier.U2F_OFF)
 	select {
 	case message := <-messages:
-		if message != notifier.U2F_OFF {
+		if message.Message != notifier.U2F_OFF {
 			t.Fatalf("stop message = %v", message)
 		}
 	case <-time.After(time.Second):

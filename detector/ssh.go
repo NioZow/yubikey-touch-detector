@@ -1,3 +1,5 @@
+//go:build linux
+
 package detector
 
 import (
@@ -9,10 +11,12 @@ import (
 	"sync"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/maximbaz/yubikey-touch-detector/notifier"
 )
 
 // WatchSSH watches for hints that YubiKey is maybe waiting for a touch on a SSH auth request
-func WatchSSH(requestGPGCheck chan bool, exits *sync.Map) {
+func WatchSSH(requestGPGCheck chan *notifier.Process, exits *sync.Map) {
 	socketFile := os.Getenv("SSH_AUTH_SOCK")
 
 	if socketFile == "" {
@@ -56,7 +60,7 @@ func WatchSSH(requestGPGCheck chan bool, exits *sync.Map) {
 		}
 	}
 
-	proxySocket, err := net.Listen("unix", socketFile)
+	proxySocket, err := net.ListenUnix("unix", &net.UnixAddr{Name: socketFile, Net: "unix"})
 	if err != nil {
 		log.Error("Cannot establish a proxy SSH socket: ", err)
 		if err := os.Rename(originalSocketFile, socketFile); err != nil {
@@ -80,13 +84,14 @@ func WatchSSH(requestGPGCheck chan bool, exits *sync.Map) {
 	}()
 
 	for {
-		proxyConnection, err := proxySocket.Accept()
+		proxyConnection, err := proxySocket.AcceptUnix()
 		if err != nil {
 			if !strings.Contains(err.Error(), "use of closed network connection") {
 				log.Error("Cannot accept incoming proxy connection: ", err)
 			}
 			return
 		}
+		process := processFromPeer(proxyConnection)
 		originalConnection, err := net.Dial("unix", originalSocketFile)
 		if err != nil {
 			log.Error("Cannot establish connection to original socket: ", err)
@@ -94,12 +99,24 @@ func WatchSSH(requestGPGCheck chan bool, exits *sync.Map) {
 			return
 		}
 
-		go proxyUnixSocket(proxyConnection, originalConnection, requestGPGCheck)
-		go proxyUnixSocket(originalConnection, proxyConnection, requestGPGCheck)
+		go proxyUnixSocket(proxyConnection, originalConnection, process, requestGPGCheck)
+		go proxyUnixSocket(originalConnection, proxyConnection, process, requestGPGCheck)
 	}
 }
 
-func proxyUnixSocket(reader net.Conn, writer net.Conn, requestGPGCheck chan bool) {
+func processFromPeer(connection *net.UnixConn) *notifier.Process {
+	_, pid, ok := peerCredentials(connection)
+	if !ok {
+		return nil
+	}
+	process := notifier.NewProcess(pid)
+	if process != nil {
+		process.Source = "peercred"
+	}
+	return process
+}
+
+func proxyUnixSocket(reader net.Conn, writer net.Conn, process *notifier.Process, requestGPGCheck chan *notifier.Process) {
 	defer (func() {
 		reader.Close()
 		writer.Close()
@@ -118,7 +135,7 @@ func proxyUnixSocket(reader net.Conn, writer net.Conn, requestGPGCheck chan bool
 		}
 
 		select {
-		case requestGPGCheck <- true:
+		case requestGPGCheck <- process:
 		default:
 		}
 	}

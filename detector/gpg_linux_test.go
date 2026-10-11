@@ -14,60 +14,60 @@ import (
 	"github.com/maximbaz/yubikey-touch-detector/notifier"
 )
 
-func testGPGTracker(t *testing.T, delay time.Duration) (*gpgOperationTracker, chan notifier.Message) {
+func testGPGTracker(t *testing.T, delay time.Duration) (*gpgOperationTracker, chan notifier.Event) {
 	t.Helper()
-	messages := make(chan notifier.Message, 16)
+	messages := make(chan notifier.Event, 16)
 	notifiers := &sync.Map{}
 	notifiers.Store("test", messages)
 	return newGPGOperationTracker(newGPGNotifications(notifiers), delay), messages
 }
 
-func expectGPGMessage(t *testing.T, messages chan notifier.Message, expected notifier.Message, timeout time.Duration) {
+func expectGPGMessage(t *testing.T, messages chan notifier.Event, expected notifier.Message, timeout time.Duration) {
 	t.Helper()
 	select {
 	case actual := <-messages:
-		if actual != expected {
-			t.Fatalf("got %q, expected %q", actual, expected)
+		if actual.Message != expected {
+			t.Fatalf("got %q, expected %q", actual.Message, expected)
 		}
 	case <-time.After(timeout):
 		t.Fatalf("timed out waiting for %q", expected)
 	}
 }
 
-func expectNoGPGMessage(t *testing.T, messages chan notifier.Message, timeout time.Duration) {
+func expectNoGPGMessage(t *testing.T, messages chan notifier.Event, timeout time.Duration) {
 	t.Helper()
 	select {
 	case actual := <-messages:
-		t.Fatalf("unexpected message %q", actual)
+		t.Fatalf("unexpected message %q", actual.Message)
 	case <-time.After(timeout):
 	}
 }
 
 func TestGPGNotificationsAggregateSources(t *testing.T) {
-	messages := make(chan notifier.Message, 4)
+	messages := make(chan notifier.Event, 4)
 	notifiers := &sync.Map{}
 	notifiers.Store("test", messages)
 	notifications := newGPGNotifications(notifiers)
 
-	notifications.set(gpgProxySource, true)
+	notifications.set(gpgProxySource, true, nil)
 	expectGPGMessage(t, messages, notifier.GPG_ON, 50*time.Millisecond)
-	notifications.set(gpgBusyCheckSource, true)
+	notifications.set(gpgBusyCheckSource, true, nil)
 	expectNoGPGMessage(t, messages, 10*time.Millisecond)
-	notifications.set(gpgProxySource, false)
+	notifications.set(gpgProxySource, false, nil)
 	expectNoGPGMessage(t, messages, 10*time.Millisecond)
-	notifications.set(gpgBusyCheckSource, false)
+	notifications.set(gpgBusyCheckSource, false, nil)
 	expectGPGMessage(t, messages, notifier.GPG_OFF, 50*time.Millisecond)
 }
 
 func TestGPGNotificationDeliveryCoalescesToLatestState(t *testing.T) {
-	output := make(chan notifier.Message, 1)
+	output := make(chan notifier.Event, 1)
 	delivery := &gpgNotificationDelivery{
 		output:  output,
-		updates: make(chan notifier.Message, 1),
+		updates: make(chan notifier.Event, 1),
 	}
 
-	delivery.send(notifier.GPG_ON)
-	delivery.send(notifier.GPG_OFF)
+	delivery.send(notifier.Event{Message: notifier.GPG_ON})
+	delivery.send(notifier.Event{Message: notifier.GPG_OFF})
 	go delivery.run()
 
 	expectGPGMessage(t, output, notifier.GPG_OFF, 50*time.Millisecond)
@@ -75,7 +75,7 @@ func TestGPGNotificationDeliveryCoalescesToLatestState(t *testing.T) {
 }
 
 func TestGPGNotificationsDoNotBlockOnStalledNotifier(t *testing.T) {
-	stalled := make(chan notifier.Message)
+	stalled := make(chan notifier.Event)
 	notifiers := &sync.Map{}
 	notifiers.Store("stalled", stalled)
 	notifications := newGPGNotifications(notifiers)
@@ -83,7 +83,7 @@ func TestGPGNotificationsDoNotBlockOnStalledNotifier(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		for index := 0; index < 100; index++ {
-			notifications.set(gpgProxySource, index%2 == 0)
+			notifications.set(gpgProxySource, index%2 == 0, nil)
 		}
 		close(done)
 	}()
@@ -97,7 +97,7 @@ func TestGPGNotificationsDoNotBlockOnStalledNotifier(t *testing.T) {
 	for {
 		select {
 		case message := <-stalled:
-			if message == notifier.GPG_OFF {
+			if message.Message == notifier.GPG_OFF {
 				return
 			}
 		case <-time.After(50 * time.Millisecond):
@@ -126,8 +126,8 @@ func TestAssuanLineParserHandlesFragments(t *testing.T) {
 
 func TestGPGTrackerTimesOnlyQueueHead(t *testing.T) {
 	tracker, messages := testGPGTracker(t, 100*time.Millisecond)
-	first := tracker.start()
-	second := tracker.start()
+	first := tracker.start(nil)
+	second := tracker.start(nil)
 
 	time.Sleep(60 * time.Millisecond)
 	tracker.finish(first)

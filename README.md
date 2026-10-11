@@ -74,7 +74,9 @@ The built-in title and body can be overridden independently:
 $ yubikey-touch-detector --notify --notify-title "Security key required: {{.Reasons}}" --notify-body "Touch your YubiKey to continue."
 ```
 
-The title and body are Go templates. `{{.Reasons}}` expands to a sorted, comma-separated list of the active event types (`gpg`, `hmac`, and `u2f`). It can be placed in either field or omitted. The default body is `Touch your YubiKey to continue ({{.Reasons}}).`, allowing notification daemons such as dunst to match the event type.
+The title and body are Go templates. `{{.Reasons}}` expands to a sorted, comma-separated list of the active event types (`gpg`, `hmac`, and `u2f`). It can be placed in either field or omitted. The default body is `Touch your YubiKey to continue ({{.Reasons}}).{{if .Comm}}\nRequested by {{.Comm}} ({{.Cmdline}}){{end}}`, which appends the requesting process when it could be attributed.
+
+When the requesting process can be identified, these extra fields are available in every template: `{{.Comm}}`, `{{.Cmdline}}`, `{{.Exe}}`, `{{.PID}}`, `{{.PPID}}`, `{{.UID}}`, `{{.GID}}`, `{{.User}}`, `{{.Cwd}}` and the full object `{{.Process}}`. See [Templating and the requesting process](#templating-and-the-requesting-process).
 
 #### Configuring the app
 
@@ -87,10 +89,51 @@ The app supports the following environment variables and CLI arguments (CLI args
 | `YUBIKEY_TOUCH_DETECTOR_NOTIFY_TITLE` | `--notify-title` |
 | `YUBIKEY_TOUCH_DETECTOR_NOTIFY_BODY` | `--notify-body` |
 | `YUBIKEY_TOUCH_DETECTOR_STDOUT`    | `--stdout`    |
+| `YUBIKEY_TOUCH_DETECTOR_STDOUT_FORMAT` | `--stdout-format` |
 | `YUBIKEY_TOUCH_DETECTOR_NOSOCKET`  | `--no-socket` |
+| `YUBIKEY_TOUCH_DETECTOR_SOCKET_JSON` | `--socket-json` |
+| `YUBIKEY_TOUCH_DETECTOR_LOG_FILE`  | `--log-file`  |
+| `YUBIKEY_TOUCH_DETECTOR_LOG_FORMAT` | `--log-format` |
+| `YUBIKEY_TOUCH_DETECTOR_LOG_ALL`   | `--log-all`   |
 | `YUBIKEY_TOUCH_DETECTOR_DBUS`      | `--dbus`      |
 
 You can configure the systemd service by defining any of these environment variables in `$XDG_CONFIG_HOME/yubikey-touch-detector/service.conf` - see `service.conf.example` for a configuration example.
+
+#### Templating and the requesting process
+
+Every event can carry the process that triggered it. Attribution is exact for
+operations that go through a unix socket (GPG agent and SSH agent - the peer PID
+is read with `SO_PEERCRED`). For raw HID access (U2F and HMAC) the process
+holding the `/dev/hidraw*` device open is found by scanning `/proc`; that scan
+only sees the current user's processes, so a privileged requester (for example a
+`sudo`/`pam-u2f` prompt) may not be attributed.
+
+Templates are used for desktop notifications, stdout and the log file. Alongside
+the event fields (`.Type`, `.Active`, `.Reasons`, ...) the following process
+fields are available: `.PID`, `.PPID`, `.UID`, `.GID`, `.User`, `.Comm`, `.Exe`,
+`.Cmdline` (joined with spaces), `.Cwd`, and the full `.Process` object.
+
+```
+# Notifications that name the requester
+$ yubikey-touch-detector --notify \
+    --notify-body 'Touch your YubiKey to continue ({{.Reasons}}){{if .Comm}} for {{.Cmdline}}{{end}}'
+
+# Everything as JSON on stdout
+$ yubikey-touch-detector --stdout --stdout-format '{{.JSON}}'
+```
+
+#### Touch history log
+
+Pass `--log-file` to append every touch to a file using `--log-format`
+(defaults to `DefaultLogFormat`, a readable line with timestamp, type and
+process). Only events that *start* a touch are written unless `--log-all` is
+given:
+
+```
+$ yubikey-touch-detector --log-file ~/.local/state/yubikey-touch-detector/history.log
+$ tail -1 ~/.local/state/yubikey-touch-detector/history.log
+2026-01-02T15:04:05Z gpg active=true pid=4242 user=user comm=gpg cmdline="gpg --sign"
+```
 
 #### Integrating with other UI components
 
@@ -113,11 +156,17 @@ Next, in order to integrate the app with other UI components to display a visibl
 
 All messages have a fixed length of 5 bytes to simplify the code on the receiving side.
 
+With `--socket-json` each event is instead emitted as a single JSON object followed by a newline, including the attributed process:
+
+```json
+{"message":"GPG_1","type":"gpg","reason":"gpg","active":true,"time":"2026-01-02T15:04:05.123456789Z","unix":1767366245,"reasons":"gpg","process":{"pid":1234,"ppid":1,"uid":1000,"user":"user","comm":"gpg","exe":"/usr/bin/gpg","cmdline":["gpg","--sign"],"cwd":"/home/user","source":"peercred"}}
+```
+
 ##### notifier/dbus
 
 `dbus` notifier registers a dbus server at the interface name `com.github.maximbaz.YubikeyTouchDetector` and path `/com/github/maximbaz/YubikeyTouchDetector`.
 
-Properties on this dbus interface are discoverable through introspection. Properties also emit PropertiesChanged signals to indicate updates and support gobject binding.
+Properties on this dbus interface are discoverable through introspection. Properties also emit PropertiesChanged signals to indicate updates and support gobject binding. In addition to the per-type state properties, a `LastEvent` property contains the JSON document for the most recent event (including process information).
 
 ## How it works
 

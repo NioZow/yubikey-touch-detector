@@ -54,6 +54,8 @@
 
             buildInputs = with pkgs; lib.optionals stdenv.hostPlatform.isLinux [ libnotify gpgme ];
           };
+
+          default = self.packages.${system}.yubikey-touch-detector;
         });
 
       # Add dependencies that are only needed for development

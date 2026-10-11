@@ -48,7 +48,7 @@ func setupLibnotifyNotifier(notifiers *sync.Map, title, body string) {
 		return
 	}
 
-	touch := make(chan Message, 10)
+	touch := make(chan Event, 10)
 	notifiers.Store("notifier/libnotify", touch)
 
 	notification := notify.Notification{
@@ -70,7 +70,7 @@ func setupLibnotifyNotifier(notifiers *sync.Map, title, body string) {
 	reference := notificationReference{}
 
 	for {
-		var value Message
+		var value Event
 		select {
 		case signal, ok := <-signals:
 			if ok {
@@ -81,9 +81,9 @@ func setupLibnotifyNotifier(notifiers *sync.Map, title, body string) {
 			continue
 		case value = <-touch:
 		}
-		wasActive, isActive, changed := state.update(value)
+		wasActive, isActive, changed := state.update(value.Message)
 		if isActive && changed {
-			notification.Summary, notification.Body, err = templates.render(state.reasons())
+			notification.Summary, notification.Body, err = templates.render(buildTemplateData(value, state.reasons()))
 			if err != nil {
 				log.Error("Cannot render desktop notification: ", err)
 				continue

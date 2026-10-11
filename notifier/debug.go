@@ -8,11 +8,12 @@ import (
 
 // SetupDebugNotifier configures a notifier to log all touch events
 func SetupDebugNotifier(notifiers *sync.Map) {
-	touch := make(chan Message, 10)
+	touch := make(chan Event, 10)
 	notifiers.Store("notifier/debug", touch)
 
-	for {
-		value := <-touch
-		log.Debug("[notifiers/debug] ", value)
+	state := newTouchState()
+	for value := range touch {
+		state.update(value.Message)
+		log.Debug("[notifiers/debug] ", value.JSONStringWithReasons(state.reasons()))
 	}
 }

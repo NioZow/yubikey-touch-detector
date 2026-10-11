@@ -17,6 +17,32 @@ const (
 	HMAC_OFF Message = "MAC_0"
 )
 
+// Reason returns the coarse event type ("gpg", "u2f" or "hmac") for the
+// message, or an empty string when the message is unknown.
+func (message Message) Reason() string {
+	switch message {
+	case GPG_ON, GPG_OFF:
+		return "gpg"
+	case U2F_ON, U2F_OFF:
+		return "u2f"
+	case HMAC_ON, HMAC_OFF:
+		return "hmac"
+	default:
+		return ""
+	}
+}
+
+// Active reports whether the message marks the start (as opposed to the end)
+// of a touch request.
+func (message Message) Active() bool {
+	switch message {
+	case GPG_ON, U2F_ON, HMAC_ON:
+		return true
+	default:
+		return false
+	}
+}
+
 type touchState struct {
 	active map[string]bool
 }
@@ -27,24 +53,11 @@ func newTouchState() *touchState {
 
 func (state *touchState) update(message Message) (bool, bool, bool) {
 	wasActive := len(state.active) > 0
-	var reason string
-	var active bool
-	switch message {
-	case GPG_ON:
-		reason, active = "gpg", true
-	case GPG_OFF:
-		reason = "gpg"
-	case U2F_ON:
-		reason, active = "u2f", true
-	case U2F_OFF:
-		reason = "u2f"
-	case HMAC_ON:
-		reason, active = "hmac", true
-	case HMAC_OFF:
-		reason = "hmac"
-	default:
+	reason := message.Reason()
+	if reason == "" {
 		return wasActive, wasActive, false
 	}
+	active := message.Active()
 	wasReasonActive := state.active[reason]
 	if active {
 		state.active[reason] = true

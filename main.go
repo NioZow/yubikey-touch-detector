@@ -26,6 +26,8 @@ func main() {
 	envStdout := truthyValues[strings.ToLower(os.Getenv("YUBIKEY_TOUCH_DETECTOR_STDOUT"))]
 	envNosocket := truthyValues[strings.ToLower(os.Getenv("YUBIKEY_TOUCH_DETECTOR_NOSOCKET"))]
 	envDbus := truthyValues[strings.ToLower(os.Getenv("YUBIKEY_TOUCH_DETECTOR_DBUS"))]
+	envLogAll := truthyValues[strings.ToLower(os.Getenv("YUBIKEY_TOUCH_DETECTOR_LOG_ALL"))]
+	envSocketJSON := truthyValues[strings.ToLower(os.Getenv("YUBIKEY_TOUCH_DETECTOR_SOCKET_JSON"))]
 	notificationTitle := notifier.DefaultNotificationTitle
 	if value, found := os.LookupEnv("YUBIKEY_TOUCH_DETECTOR_NOTIFY_TITLE"); found {
 		notificationTitle = value
@@ -34,6 +36,15 @@ func main() {
 	if value, found := os.LookupEnv("YUBIKEY_TOUCH_DETECTOR_NOTIFY_BODY"); found {
 		notificationBody = value
 	}
+	stdoutFormat := "{{.JSON}}"
+	if value, found := os.LookupEnv("YUBIKEY_TOUCH_DETECTOR_STDOUT_FORMAT"); found {
+		stdoutFormat = value
+	}
+	logFile := os.Getenv("YUBIKEY_TOUCH_DETECTOR_LOG_FILE")
+	logFormat := notifier.DefaultLogFormat
+	if value, found := os.LookupEnv("YUBIKEY_TOUCH_DETECTOR_LOG_FORMAT"); found {
+		logFormat = value
+	}
 
 	var version bool
 	var verbose bool
@@ -41,6 +52,8 @@ func main() {
 	var stdout bool
 	var nosocket bool
 	var dbus bool
+	var logAll bool
+	var socketJSON bool
 
 	flag.BoolVar(&version, "version", false, "print version and exit")
 	flag.BoolVar(&verbose, "v", envVerbose, "enable debug logging")
@@ -48,9 +61,14 @@ func main() {
 	flag.BoolVar(&desktopNotify, "libnotify", envNotify || envLibnotify, "deprecated alias for --notify")
 	flag.StringVar(&notificationTitle, "notify-title", notificationTitle, "desktop notification title template")
 	flag.StringVar(&notificationBody, "notify-body", notificationBody, "desktop notification body template")
-	flag.BoolVar(&stdout, "stdout", envStdout, "print notifications to stdout")
+	flag.BoolVar(&stdout, "stdout", envStdout, "print touch events to stdout")
+	flag.StringVar(&stdoutFormat, "stdout-format", stdoutFormat, "stdout event template (see docs for available fields)")
 	flag.BoolVar(&nosocket, "no-socket", envNosocket, "disable unix socket notifier")
 	flag.BoolVar(&dbus, "dbus", envDbus, "enable dbus server for IPC")
+	flag.BoolVar(&socketJSON, "socket-json", envSocketJSON, "emit rich JSON events on the unix socket instead of legacy 5 byte tokens")
+	flag.StringVar(&logFile, "log-file", logFile, "append touch events to this file (empty disables logging)")
+	flag.StringVar(&logFormat, "log-format", logFormat, "log file event template (see docs for available fields)")
+	flag.BoolVar(&logAll, "log-all", envLogAll, "log both touch start and end events (default: only touch start)")
 	flag.Parse()
 
 	if version {
@@ -81,13 +99,16 @@ func main() {
 		go notifier.SetupDebugNotifier(notifiers)
 	}
 	if !nosocket {
-		go notifier.SetupUnixSocketNotifier(notifiers, exits)
+		go notifier.SetupUnixSocketNotifier(notifiers, exits, socketJSON)
 	}
 	if desktopNotify {
 		go notifier.SetupDesktopNotifier(notifiers, notificationTitle, notificationBody)
 	}
 	if stdout {
-		go notifier.SetupStdoutNotifier(notifiers)
+		go notifier.SetupStdoutNotifier(notifiers, stdoutFormat)
+	}
+	if logFile != "" {
+		go notifier.SetupFileNotifier(notifiers, logFile, logFormat, logAll)
 	}
 	if dbus {
 		go notifier.SetupDbusNotifier(notifiers)

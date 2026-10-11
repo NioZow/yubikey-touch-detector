@@ -77,7 +77,7 @@ func TestNotificationTemplates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	title, body, err := templates.render("gpg, u2f")
+	title, body, err := templates.render(TemplateData{Reasons: "gpg, u2f"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func TestDefaultNotificationBodyIncludesReasons(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, body, err := templates.render("gpg")
+	_, body, err := templates.render(TemplateData{Reasons: "gpg"})
 	if err != nil {
 		t.Fatal(err)
 	}

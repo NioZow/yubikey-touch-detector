@@ -15,6 +15,7 @@ const DBUS_PATH dbus.ObjectPath = "/com/github/maximbaz/YubikeyTouchDetector"
 const PROP_GPG_STATE string = "GPGState"
 const PROP_U2F_STATE string = "U2FState"
 const PROP_HMAC_STATE string = "HMACState"
+const PROP_LAST_EVENT string = "LastEvent"
 
 var messagePropMap = map[Message]string{
 	GPG_ON:   PROP_GPG_STATE,
@@ -84,6 +85,15 @@ func SetupDbusNotifier(notifiers *sync.Map) {
 					return nil
 				},
 			},
+			PROP_LAST_EVENT: {
+				Value:    "",
+				Writable: true,
+				Emit:     prop.EmitTrue,
+				Callback: func(c *prop.Change) *dbus.Error {
+					log.Debug(DBUS_IFACE, ".", c.Name, " changed to ", c.Value)
+					return nil
+				},
+			},
 		},
 	}
 
@@ -118,14 +128,20 @@ func SetupDbusNotifier(notifiers *sync.Map) {
 	}
 	log.Debug("Connected to dbus session interface ", DBUS_IFACE)
 
-	touch := make(chan Message, 10)
+	touch := make(chan Event, 10)
 	notifiers.Store("notifier/dbus", touch)
 
+	state := newTouchState()
 	for {
-		message := <-touch
-		err := props.Set(DBUS_IFACE, messagePropMap[message], messageValueMap[message])
-		if err != nil {
-			log.Warn("dbus failed to update property ", messagePropMap[message], ", ", err)
+		event := <-touch
+		state.update(event.Message)
+		if property, ok := messagePropMap[event.Message]; ok {
+			if err := props.Set(DBUS_IFACE, property, messageValueMap[event.Message]); err != nil {
+				log.Warn("dbus failed to update property ", property, ", ", err)
+			}
+		}
+		if err := props.Set(DBUS_IFACE, PROP_LAST_EVENT, dbus.MakeVariant(event.JSONStringWithReasons(state.reasons()))); err != nil {
+			log.Warn("dbus failed to update property ", PROP_LAST_EVENT, ", ", err)
 		}
 	}
 }

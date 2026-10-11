@@ -40,6 +40,7 @@ type u2fWatcherEvent struct {
 	devicePath string
 	active     bool
 	done       bool
+	process    *notifier.Process
 }
 
 type u2fTouchState struct {
@@ -79,9 +80,9 @@ func WatchU2F(notifiers *sync.Map) {
 	state := newU2FTouchState()
 	var nextWatcherID uint64
 
-	publish := func(message notifier.Message) {
+	publish := func(event notifier.Event) {
 		notifiers.Range(func(_, value interface{}) bool {
-			value.(chan notifier.Message) <- message
+			value.(chan notifier.Event) <- event
 			return true
 		})
 	}
@@ -122,7 +123,7 @@ func WatchU2F(notifiers *sync.Map) {
 			startWatcher(devicePath)
 		case event := <-watcherEvents:
 			if message, changed := state.update(event.id, event.active); changed {
-				publish(message)
+				publish(notifier.Event{Message: message, Time: time.Now(), Process: event.process, Device: event.devicePath})
 			}
 			if event.done && watchers[event.devicePath] == event.id {
 				delete(watchers, event.devicePath)
@@ -254,9 +255,9 @@ func runU2FWatcher(devicePath string, id uint64, events chan<- u2fWatcherEvent) 
 				mutex.Unlock()
 			})
 		}
-		if emitOn {
-			events <- u2fWatcherEvent{id: id, devicePath: devicePath, active: true}
-		}
 		mutex.Unlock()
+		if emitOn {
+			events <- u2fWatcherEvent{id: id, devicePath: devicePath, active: true, process: attributeDevice(devicePath, false)}
+		}
 	}
 }

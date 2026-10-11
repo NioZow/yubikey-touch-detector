@@ -38,7 +38,7 @@ type macOSDeviceRegistry struct {
 type macOSFIDODebouncer struct {
 	mutex      sync.Mutex
 	delay      time.Duration
-	emit       func(notifier.Message)
+	emit       func(notifier.Event)
 	timer      *time.Timer
 	generation uint64
 	pending    bool
@@ -64,9 +64,12 @@ func WatchMacOS(notifiers *sync.Map) {
 		activeClients: make(map[string]bool),
 		isYubico:      registry.isYubico,
 	}
-	emit := func(message notifier.Message) {
+	emit := func(event notifier.Event) {
+		if event.Time.IsZero() {
+			event.Time = time.Now()
+		}
 		notifiers.Range(func(_, value interface{}) bool {
-			value.(chan notifier.Message) <- message
+			value.(chan notifier.Event) <- event
 			return true
 		})
 	}
@@ -91,13 +94,13 @@ func WatchMacOS(notifiers *sync.Map) {
 	}
 }
 
-func newMacOSFIDODebouncer(delay time.Duration, emit func(notifier.Message)) *macOSFIDODebouncer {
+func newMacOSFIDODebouncer(delay time.Duration, emit func(notifier.Event)) *macOSFIDODebouncer {
 	return &macOSFIDODebouncer{delay: delay, emit: emit}
 }
 
 func (debouncer *macOSFIDODebouncer) handle(message notifier.Message) {
 	if message != notifier.U2F_ON && message != notifier.U2F_OFF {
-		debouncer.emit(message)
+		debouncer.emit(notifier.Event{Message: message, Time: time.Now()})
 		return
 	}
 
@@ -120,7 +123,7 @@ func (debouncer *macOSFIDODebouncer) handle(message notifier.Message) {
 			debouncer.pending = false
 			debouncer.active = true
 			debouncer.timer = nil
-			debouncer.emit(notifier.U2F_ON)
+			debouncer.emit(notifier.Event{Message: notifier.U2F_ON, Time: time.Now()})
 		})
 		return
 	}
@@ -133,7 +136,7 @@ func (debouncer *macOSFIDODebouncer) handle(message notifier.Message) {
 	}
 	if debouncer.active {
 		debouncer.active = false
-		debouncer.emit(notifier.U2F_OFF)
+		debouncer.emit(notifier.Event{Message: notifier.U2F_OFF, Time: time.Now()})
 	}
 }
 

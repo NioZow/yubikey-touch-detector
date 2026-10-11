@@ -29,6 +29,7 @@ type gpgOperation struct {
 	generation uint64
 	notified   bool
 	timer      *time.Timer
+	process    *notifier.Process
 }
 
 type gpgTrackerEventKind uint8
@@ -57,14 +58,14 @@ const (
 )
 
 type gpgNotificationDelivery struct {
-	output  chan notifier.Message
-	updates chan notifier.Message
+	output  chan notifier.Event
+	updates chan notifier.Event
 }
 
-func newGPGNotificationDelivery(output chan notifier.Message) *gpgNotificationDelivery {
+func newGPGNotificationDelivery(output chan notifier.Event) *gpgNotificationDelivery {
 	delivery := &gpgNotificationDelivery{
 		output:  output,
-		updates: make(chan notifier.Message, 1),
+		updates: make(chan notifier.Event, 1),
 	}
 	go delivery.run()
 	return delivery
@@ -81,7 +82,7 @@ func (delivery *gpgNotificationDelivery) run() {
 	}
 }
 
-func (delivery *gpgNotificationDelivery) send(message notifier.Message) {
+func (delivery *gpgNotificationDelivery) send(message notifier.Event) {
 	select {
 	case delivery.updates <- message:
 	default:
@@ -96,19 +97,19 @@ func (delivery *gpgNotificationDelivery) send(message notifier.Message) {
 type gpgNotifications struct {
 	mutex      sync.Mutex
 	active     map[gpgNotificationSource]bool
-	deliveries map[chan notifier.Message]*gpgNotificationDelivery
+	deliveries map[chan notifier.Event]*gpgNotificationDelivery
 	notifiers  *sync.Map
 }
 
 func newGPGNotifications(notifiers *sync.Map) *gpgNotifications {
 	return &gpgNotifications{
 		active:     make(map[gpgNotificationSource]bool),
-		deliveries: make(map[chan notifier.Message]*gpgNotificationDelivery),
+		deliveries: make(map[chan notifier.Event]*gpgNotificationDelivery),
 		notifiers:  notifiers,
 	}
 }
 
-func (notifications *gpgNotifications) set(source gpgNotificationSource, active bool) {
+func (notifications *gpgNotifications) set(source gpgNotificationSource, active bool, process *notifier.Process) {
 	notifications.mutex.Lock()
 	defer notifications.mutex.Unlock()
 	wasActive := len(notifications.active) != 0
@@ -121,18 +122,19 @@ func (notifications *gpgNotifications) set(source gpgNotificationSource, active 
 	if wasActive == isActive {
 		return
 	}
-	message := notifier.GPG_OFF
+	event := notifier.Event{Message: notifier.GPG_OFF, Time: time.Now()}
 	if isActive {
-		message = notifier.GPG_ON
+		event.Message = notifier.GPG_ON
+		event.Process = process
 	}
 	notifications.notifiers.Range(func(_, value interface{}) bool {
-		output := value.(chan notifier.Message)
+		output := value.(chan notifier.Event)
 		delivery := notifications.deliveries[output]
 		if delivery == nil {
 			delivery = newGPGNotificationDelivery(output)
 			notifications.deliveries[output] = delivery
 		}
-		delivery.send(message)
+		delivery.send(event)
 		return true
 	})
 }
@@ -153,8 +155,8 @@ func newGPGOperationTracker(notifications *gpgNotifications, delay time.Duration
 	return tracker
 }
 
-func (tracker *gpgOperationTracker) start() *gpgOperation {
-	op := &gpgOperation{blocked: make(map[string]bool)}
+func (tracker *gpgOperationTracker) start(process *notifier.Process) *gpgOperation {
+	op := &gpgOperation{blocked: make(map[string]bool), process: process}
 	tracker.events <- gpgTrackerEvent{kind: gpgTrackerStart, op: op}
 	return op
 }
@@ -228,7 +230,7 @@ func (tracker *gpgOperationTracker) run() {
 				stop(event.op)
 				if event.op.notified {
 					event.op.notified = false
-					tracker.notifications.set(gpgProxySource, false)
+					tracker.notifications.set(gpgProxySource, false, nil)
 				}
 			}
 		case gpgTrackerUnblock:
@@ -248,7 +250,7 @@ func (tracker *gpgOperationTracker) run() {
 			stop(event.op)
 			if event.op.notified {
 				event.op.notified = false
-				tracker.notifications.set(gpgProxySource, false)
+				tracker.notifications.set(gpgProxySource, false, nil)
 			}
 			queue = append(queue[:index], queue[index+1:]...)
 			if wasHead && len(queue) != 0 {
@@ -260,7 +262,7 @@ func (tracker *gpgOperationTracker) run() {
 			}
 			event.op.timer = nil
 			event.op.notified = true
-			tracker.notifications.set(gpgProxySource, true)
+			tracker.notifications.set(gpgProxySource, true, event.op.process)
 		case gpgTrackerReset:
 			wasNotified := false
 			for _, op := range queue {
@@ -269,7 +271,7 @@ func (tracker *gpgOperationTracker) run() {
 			}
 			queue = nil
 			if wasNotified {
-				tracker.notifications.set(gpgProxySource, false)
+				tracker.notifications.set(gpgProxySource, false, nil)
 			}
 		}
 	}
@@ -302,6 +304,7 @@ type gpgAgentConnectionState struct {
 	signingKey string
 	decryptKey string
 	operation  *gpgOperation
+	process    *notifier.Process
 	inquiry    bool
 	closed     bool
 }
@@ -321,7 +324,7 @@ func (state *gpgAgentConnectionState) startOperation(cardBacked bool) {
 	}
 	state.inquiry = false
 	if cardBacked {
-		state.operation = state.tracker.start()
+		state.operation = state.tracker.start(state.process)
 	}
 }
 
@@ -571,17 +574,22 @@ func (session *gpgProxySession) close(restore bool) {
 	}
 }
 
-func peerIsCurrentUser(connection *net.UnixConn) bool {
+func peerCredentials(connection *net.UnixConn) (uid uint32, pid int, ok bool) {
 	raw, err := connection.SyscallConn()
 	if err != nil {
-		return false
+		return 0, 0, false
 	}
-	allowed := false
+	ok = true
 	controlErr := raw.Control(func(fd uintptr) {
 		credentials, err := unix.GetsockoptUcred(int(fd), unix.SOL_SOCKET, unix.SO_PEERCRED)
-		allowed = err == nil && credentials.Uid == uint32(os.Getuid())
+		if err != nil {
+			ok = false
+			return
+		}
+		uid = credentials.Uid
+		pid = int(credentials.Pid)
 	})
-	return controlErr == nil && allowed
+	return uid, pid, ok && controlErr == nil
 }
 
 func closeReceivedRights(oob []byte) {
@@ -654,9 +662,14 @@ func relayGPGAgent(source, destination *net.UnixConn, parser *assuanLineParser, 
 }
 
 func (session *gpgProxySession) handleConnection(client *net.UnixConn) {
-	if !peerIsCurrentUser(client) {
+	uid, pid, ok := peerCredentials(client)
+	if !ok || uid != uint32(os.Getuid()) {
 		client.Close()
 		return
+	}
+	process := notifier.NewProcess(pid)
+	if process != nil {
+		process.Source = "peercred"
 	}
 	backendAddress, err := net.ResolveUnixAddr("unix", session.backendPath)
 	if err != nil {
@@ -677,7 +690,7 @@ func (session *gpgProxySession) handleConnection(client *net.UnixConn) {
 	defer client.Close()
 	defer backend.Close()
 
-	state := &gpgAgentConnectionState{tracker: session.tracker, cardKeys: session.cardKeys}
+	state := &gpgAgentConnectionState{tracker: session.tracker, cardKeys: session.cardKeys, process: process}
 	defer state.close()
 	clientParser := &assuanLineParser{}
 	serverParser := &assuanLineParser{}
@@ -795,7 +808,7 @@ func watchGPGAgent(files []string, notifications *gpgNotifications, exits *sync.
 	}
 }
 
-func checkGPGOnRequest(requestGPGCheck chan bool, notifications *gpgNotifications, ctx *gpgme.Context) {
+func checkGPGOnRequest(requestGPGCheck chan *notifier.Process, notifications *gpgNotifications, ctx *gpgme.Context) {
 	check := func(response chan error, timer *time.Timer) {
 		err := ctx.AssuanSend("LEARN", nil, nil, func(status, args string) error {
 			log.Debugf("AssuanSend/status: %v, %v", status, args)
@@ -805,15 +818,15 @@ func checkGPGOnRequest(requestGPGCheck chan bool, notifications *gpgNotification
 			response <- err
 		}
 	}
-	for range requestGPGCheck {
+	for process := range requestGPGCheck {
 		response := make(chan error)
 		timer := time.AfterFunc(gpgTouchDelay, func() {
-			notifications.set(gpgBusyCheckSource, true)
+			notifications.set(gpgBusyCheckSource, true, process)
 			err := <-response
 			if err != nil {
 				log.Errorf("Agent returned an error: %v", err)
 			}
-			notifications.set(gpgBusyCheckSource, false)
+			notifications.set(gpgBusyCheckSource, false, nil)
 		})
 		time.Sleep(200 * time.Millisecond)
 		check(response, timer)
@@ -834,7 +847,7 @@ func WatchGPG(files []string, notifiers, exits *sync.Map) {
 		return
 	}
 
-	requestGPGCheck := make(chan bool)
+	requestGPGCheck := make(chan *notifier.Process)
 	go checkGPGOnRequest(requestGPGCheck, notifications, ctx)
 	WatchSSH(requestGPGCheck, exits)
 }
