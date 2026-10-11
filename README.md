@@ -74,6 +74,12 @@ The built-in title and body can be overridden independently:
 $ yubikey-touch-detector --notify --notify-title "Security key required: {{.Reasons}}" --notify-body "Touch your YubiKey to continue."
 ```
 
+The notification icon is a freedesktop icon-theme name and can be changed too (for example `pgp-keys`):
+
+```
+$ yubikey-touch-detector --notify --notify-icon pgp-keys
+```
+
 The title and body are Go templates. `{{.Reasons}}` expands to a sorted, comma-separated list of the active event types (`gpg`, `hmac`, and `u2f`). It can be placed in either field or omitted. The default body is `Touch your YubiKey to continue ({{.Reasons}}).{{if .Comm}}\nRequested by {{.Comm}} ({{.Cmdline}}){{end}}`, which appends the requesting process when it could be attributed.
 
 When the requesting process can be identified, these extra fields are available in every template: `{{.Comm}}`, `{{.Cmdline}}`, `{{.Exe}}`, `{{.PID}}`, `{{.PPID}}`, `{{.UID}}`, `{{.GID}}`, `{{.User}}`, `{{.Cwd}}` and the full object `{{.Process}}`. See [Templating and the requesting process](#templating-and-the-requesting-process).
@@ -88,6 +94,7 @@ The app supports the following environment variables and CLI arguments (CLI args
 | `YUBIKEY_TOUCH_DETECTOR_NOTIFY`    | `--notify`    |
 | `YUBIKEY_TOUCH_DETECTOR_NOTIFY_TITLE` | `--notify-title` |
 | `YUBIKEY_TOUCH_DETECTOR_NOTIFY_BODY` | `--notify-body` |
+| `YUBIKEY_TOUCH_DETECTOR_NOTIFY_ICON` | `--notify-icon` |
 | `YUBIKEY_TOUCH_DETECTOR_STDOUT`    | `--stdout`    |
 | `YUBIKEY_TOUCH_DETECTOR_STDOUT_FORMAT` | `--stdout-format` |
 | `YUBIKEY_TOUCH_DETECTOR_NOSOCKET`  | `--no-socket` |

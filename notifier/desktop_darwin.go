@@ -9,7 +9,8 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-func SetupDesktopNotifier(notifiers *sync.Map, title, body string) {
+func SetupDesktopNotifier(notifiers *sync.Map, title, body, icon string) {
+	_ = icon // macOS notifications do not take an icon; the app icon is used
 	templates, err := newNotificationTemplates(title, body)
 	if err != nil {
 		log.Error("Cannot initialize desktop notifications: ", err)

@@ -8,6 +8,7 @@ import (
 
 const DefaultNotificationTitle = "YubiKey is waiting for a touch"
 const DefaultNotificationBody = "Touch your YubiKey to continue ({{.Reasons}}).{{if .Comm}}\nRequested by {{.Comm}} ({{.Cmdline}}){{end}}"
+const DefaultNotificationIcon = "yubikey-touch-detector"
 
 type notificationTemplates struct {
 	title *template.Template

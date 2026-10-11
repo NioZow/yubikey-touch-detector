@@ -19,6 +19,9 @@ yubikey-touch-detector - detect when a YubiKey is waiting for a touch
 *-notify-body* _body_
 	Set the desktop notification body template. Defaults to "Touch your YubiKey to continue ({{.Reasons}}).{{if .Comm}}\nRequested by {{.Comm}} ({{.Cmdline}}){{end}}".
 
+*-notify-icon* _name_
+	Set the freedesktop icon theme name used for the desktop notification. Defaults to "yubikey-touch-detector" (for example, use "pgp-keys" for a key icon).
+
 *-no-socket*
 	Disable unix socket notifier.
 
@@ -97,6 +100,9 @@ _YUBIKEY_TOUCH_DETECTOR_NOTIFY_TITLE_
 
 _YUBIKEY_TOUCH_DETECTOR_NOTIFY_BODY_
 	Equivalent to specifying *-notify-body*.
+
+_YUBIKEY_TOUCH_DETECTOR_NOTIFY_ICON_
+	Equivalent to specifying *-notify-icon*.
 
 _YUBIKEY_TOUCH_DETECTOR_STDOUT_
 	Equivalent to specifying *-stdout*.

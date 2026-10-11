@@ -36,6 +36,10 @@ func main() {
 	if value, found := os.LookupEnv("YUBIKEY_TOUCH_DETECTOR_NOTIFY_BODY"); found {
 		notificationBody = value
 	}
+	notificationIcon := notifier.DefaultNotificationIcon
+	if value, found := os.LookupEnv("YUBIKEY_TOUCH_DETECTOR_NOTIFY_ICON"); found {
+		notificationIcon = value
+	}
 	stdoutFormat := "{{.JSON}}"
 	if value, found := os.LookupEnv("YUBIKEY_TOUCH_DETECTOR_STDOUT_FORMAT"); found {
 		stdoutFormat = value
@@ -61,6 +65,7 @@ func main() {
 	flag.BoolVar(&desktopNotify, "libnotify", envNotify || envLibnotify, "deprecated alias for --notify")
 	flag.StringVar(&notificationTitle, "notify-title", notificationTitle, "desktop notification title template")
 	flag.StringVar(&notificationBody, "notify-body", notificationBody, "desktop notification body template")
+	flag.StringVar(&notificationIcon, "notify-icon", notificationIcon, "desktop notification icon name (freedesktop icon theme)")
 	flag.BoolVar(&stdout, "stdout", envStdout, "print touch events to stdout")
 	flag.StringVar(&stdoutFormat, "stdout-format", stdoutFormat, "stdout event template (see docs for available fields)")
 	flag.BoolVar(&nosocket, "no-socket", envNosocket, "disable unix socket notifier")
@@ -102,7 +107,7 @@ func main() {
 		go notifier.SetupUnixSocketNotifier(notifiers, exits, socketJSON)
 	}
 	if desktopNotify {
-		go notifier.SetupDesktopNotifier(notifiers, notificationTitle, notificationBody)
+		go notifier.SetupDesktopNotifier(notifiers, notificationTitle, notificationBody, notificationIcon)
 	}
 	if stdout {
 		go notifier.SetupStdoutNotifier(notifiers, stdoutFormat)
