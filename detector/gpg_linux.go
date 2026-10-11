@@ -809,11 +809,31 @@ func watchGPGAgent(files []string, notifications *gpgNotifications, exits *sync.
 }
 
 func checkGPGOnRequest(requestGPGCheck chan *notifier.Process, notifications *gpgNotifications, ctx *gpgme.Context) {
+	// A failed transaction typically means the agent was restarted (its socket
+	// replaced); rebuild the context so subsequent checks reconnect instead of
+	// erroring permanently.
+	reconnect := func() {
+		fresh, err := gpgme.New()
+		if err != nil {
+			log.Debugf("Cannot reinitialize GPG context: %v", err)
+			return
+		}
+		if err := fresh.SetProtocol(gpgme.ProtocolAssuan); err != nil {
+			fresh.Release()
+			log.Debugf("Cannot reinitialize Assuan IPC: %v", err)
+			return
+		}
+		ctx.Release()
+		ctx = fresh
+	}
 	check := func(response chan error, timer *time.Timer) {
 		err := ctx.AssuanSend("LEARN", nil, nil, func(status, args string) error {
 			log.Debugf("AssuanSend/status: %v, %v", status, args)
 			return nil
 		})
+		if err != nil {
+			reconnect()
+		}
 		if !timer.Stop() {
 			response <- err
 		}
